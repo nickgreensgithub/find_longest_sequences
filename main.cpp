@@ -53,8 +53,8 @@ vector<fastaEntry*> GetPointersForRange(vector<fastaEntry>::iterator& startItem,
 int main(int argc, char* argv[])
 {
     auto start = chrono::high_resolution_clock::now();
-    auto records = ReadFromFastaFile("/mnt/files/projects/aau/sequence_matcher/top10k.fa");
-    //auto records = ReadFromFastaFile("/mnt/files/projects/aau/sequence_matcher/test_dataset.fa");
+    //auto records = ReadFromFastaFile("/mnt/files/projects/aau/sequence_matcher/top10k.fa");
+    auto records = ReadFromFastaFile("/mnt/files/projects/aau/sequence_matcher/test_dataset.fa");
     filterRecords(records);
     WriteToFastaFile("/mnt/files/projects/aau/sequence_matcher/output_dataset.fa", records);
     auto stop = chrono::high_resolution_clock::now();
@@ -63,8 +63,8 @@ int main(int argc, char* argv[])
     return 0;
 }
 
-static bool DoesLongerSequenceExist(const fastaEntry* thisRecord, vector<fastaEntry> records){
-    for(auto record : records){
+static bool DoesLongerSequenceExist(const fastaEntry* thisRecord, vector<fastaEntry>* records){
+    for(auto record : *records){
         if (thisRecord->IsShorterVersionOf(record)){
             return true;
         }
@@ -123,7 +123,7 @@ vector<fastaEntry> filterRecords(vector<fastaEntry> records){
     #pragma omp parallel for
     for(auto chunk : chunkedInput) {
         chunk.erase( std::remove_if( chunk.begin(), chunk.end(), [&records](fastaEntry* record){
-            return DoesLongerSequenceExist(record, records);
+            return DoesLongerSequenceExist(record, &records);
         } ), chunk.end());
     }
 
