@@ -30,13 +30,12 @@ struct fastaEntry{
     }
 
     bool IsShorterVersionOf (const fastaEntry& otherFastaEntry) const {
-        if (this->sequence.find(otherFastaEntry.sequence) != string::npos) {
+        if (otherFastaEntry.sequence.find(this->sequence) != string::npos) {
             if(otherFastaEntry.sequenceLength > this->sequenceLength){
                 return true;
             }
         }
         return false;
-        // Edge case not accounted for where 2 sequences are exactly the same
     }
 };
 
@@ -46,17 +45,17 @@ void eraseWhereLongerSequenceExists(vector<fastaEntry> records);
 vector<fastaEntry> filterRecords(vector<fastaEntry> records);
 //void filterRecords(vector<fastaEntry> records);
 void WriteToFastaFile(string path, vector<fastaEntry> records);
-vector<vector<fastaEntry*>> SplitVector(vector<fastaEntry>& records, int n = 10);
+vector<vector<fastaEntry*>> SplitVector(vector<fastaEntry>& records, int n = 1);
 
 vector<fastaEntry*> GetPointersForRange(vector<fastaEntry>::iterator& startItem, long count);
 
 int main(int argc, char* argv[])
 {
     auto start = chrono::high_resolution_clock::now();
-    //auto records = ReadFromFastaFile("/mnt/files/projects/aau/sequence_matcher/top10k.fa");
-    auto records = ReadFromFastaFile("/mnt/files/projects/aau/sequence_matcher/test_dataset.fa");
-    filterRecords(records);
-    WriteToFastaFile("/mnt/files/projects/aau/sequence_matcher/output_dataset.fa", records);
+    auto records = ReadFromFastaFile("/mnt/files/projects/aau/sequence_matcher/top10k.fa");
+    //auto records = ReadFromFastaFile("/mnt/files/projects/aau/sequence_matcher/test_dataset.fa");
+    auto filtered = filterRecords(records);
+    WriteToFastaFile("/mnt/files/projects/aau/sequence_matcher/output_dataset.fa", filtered);
     auto stop = chrono::high_resolution_clock::now();
     auto duration = chrono::duration_cast<chrono::seconds>(stop - start);
     cout << duration.count() << endl;
@@ -121,10 +120,14 @@ vector<fastaEntry> filterRecords(vector<fastaEntry> records){
     auto chunkedInput = SplitVector(records);
 
     #pragma omp parallel for
-    for(auto chunk : chunkedInput) {
-        chunk.erase( std::remove_if( chunk.begin(), chunk.end(), [&records](fastaEntry* record){
+    for(auto& chunk : chunkedInput) {
+        chunk.erase(remove_if(chunk.begin(), chunk.end(), [&records](fastaEntry* record){
             return DoesLongerSequenceExist(record, &records);
-        } ), chunk.end());
+        }));
+
+//        chunk.erase( std::remove_if( chunk.begin(), chunk.end(), [&records](fastaEntry* record){
+//            return DoesLongerSequenceExist(record, &records);
+//        } ), chunk.end());
     }
 
     vector<fastaEntry> result;
@@ -141,18 +144,23 @@ vector<fastaEntry> ReadFromFastaFile(string path){
     ifstream inputFile;
     inputFile.open(path, ios_base::in);
     if(inputFile.is_open()){
-        string tempHeader;
-        string tempSequence;
-        while(getline(inputFile, tempHeader)){
-            if (tempHeader.find(">", 0) == 0){
+        string tempLine;
+        string tempBuffer;
+        while(getline(inputFile, tempLine)){
+            if (tempLine.find(">", 0) == 0){
                 //Get line until > or end of file
-                getline(inputFile, tempSequence, '>');
-                tempSequence.erase(std::remove(tempSequence.begin(), tempSequence.end(), '\n'), tempSequence.end());
+                //!TODO problem is this is taking away the delimiter from the next record
+                getline(inputFile, tempBuffer, '>');
+                tempBuffer.erase(std::remove(tempBuffer.begin(), tempBuffer.end(), '\n'), tempBuffer.end());
                 fastaEntry newRecord = {
-                        tempHeader,
-                        tempSequence
+                        tempLine,
+                        tempBuffer
                 };
                 fileContent.push_back(newRecord);
+                if(!inputFile.eof()){
+                    inputFile.putback('>');
+                }
+
             }
         }
         inputFile.close();
@@ -166,7 +174,8 @@ void WriteToFastaFile(string path, vector<fastaEntry> records){
     if(outputFile.is_open()){
         //write the content
         for(int i = 0; i < records.size(); i ++) {
-            outputFile << records[i].header << endl;
+            //outputFile << records[i].header << endl;
+            outputFile << ">FLASV" << i+1 << '.' << records[i].sequenceLength << endl;
             outputFile << records[i].sequence << endl;
         }
     }
