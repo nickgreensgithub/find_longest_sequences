@@ -11,6 +11,14 @@
 
 using namespace std;
 
+struct searchSpaceIndex{
+    int index;
+    int startLength;
+    searchSpaceIndex(int i, int l){
+        this->index = i;
+        this->startLength = l;
+    }
+};
 struct fastaEntry{
     string header;
     string sequence;
@@ -38,6 +46,10 @@ struct fastaEntry{
     }
 };
 int THREADS;
+const int SEARCH_BLOCKS = 20;
+vector<fastaEntry *> SORTED_RECORDS;
+vector<searchSpaceIndex> SEQUENCE_LENGTH_INDEX;
+
 vector<fastaEntry> ReadFromFastaFile(string path);
 void WriteToFastaFile(string path, vector<fastaEntry> records);
 void eraseWhereLongerSequenceExists(vector<fastaEntry> records);
@@ -49,6 +61,7 @@ vector<vector<fastaEntry*>> SplitVector(vector<fastaEntry>& records, int n = THR
 vector<fastaEntry*> GetPointersForRange(vector<fastaEntry>::iterator& startItem, long count);
 int CheckArgumentCount(int argc, char* argv[]);
 
+bool sortFunction (fastaEntry* i,fastaEntry* j) { return (i->sequenceLength<j->sequenceLength); }
 
 int main(int argc, char* argv[])
 {
@@ -68,9 +81,20 @@ int main(int argc, char* argv[])
 
     auto start = chrono::high_resolution_clock::now();
     auto records = ReadFromFastaFile(inputPath);
+
+    auto SORTED_RECORDS = vector<fastaEntry *>(records.size());
+    auto startPos = records.begin();
+    SORTED_RECORDS = GetPointersForRange(startPos, (long)records.size());
+    sort(SORTED_RECORDS.begin(),SORTED_RECORDS.end(), sortFunction);
+
+    auto blockSize = SORTED_RECORDS.size()/SEARCH_BLOCKS;
+    int index = 0;
+    for(int i = 0; i < SORTED_RECORDS.size(); i+=blockSize, index++){
+        SEQUENCE_LENGTH_INDEX.push_back(searchSpaceIndex(index, SORTED_RECORDS[i]->sequenceLength));
+    }
+
+
     cout << "original count: "<< records.size() << endl;
-
-
     auto filtered = filterRecords(records);
     cout << "reduced count: "<< filtered.size() << endl;
     WriteToFastaFile(outputPath, filtered);
@@ -99,6 +123,17 @@ int CheckArgumentCount(int argc, char* argv[]){
 }
 
 static bool DoesLongerSequenceExist(const fastaEntry* thisRecord, vector<fastaEntry>* records){
+    auto startIndex = std::find_if(SEQUENCE_LENGTH_INDEX.begin(), SEQUENCE_LENGTH_INDEX.end(), [&](searchSpaceIndex item){
+        return thisRecord->sequenceLength < item.startLength;
+    });
+
+
+    for(int i = (startIndex--) ->index; i < records->size(); i++){
+        if (thisRecord->IsShorterVersionOf(records->at(i))){
+            return true;
+        }
+    }
+
     for(auto record : *records){
         if (thisRecord->IsShorterVersionOf(record)){
             return true;
