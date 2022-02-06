@@ -61,8 +61,8 @@ int main(int argc, char* argv[])
         THREADS = (threads > 0) ? threads : 1;
     }
 
-    auto inputPath = argv[1]; //TODO check if exists
-    auto outputPath = argv[1];
+    auto inputPath = argv[1];
+    auto outputPath = argv[2];
 
 
 
