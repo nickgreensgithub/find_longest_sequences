@@ -14,16 +14,10 @@
 
 using namespace std;
 
-
-
-
 struct fastaEntry{
     string header;
     string sequence;
     int sequenceLength;
-
-    public:
-        bool removed = false;
 
     fastaEntry(const string& header, const string& sequence){
         this->header = std::move(header);
@@ -56,17 +50,20 @@ map<int,int> SEARCH_INDEX;
 
 vector<fastaEntry> ReadFromFastaFile(string path);
 void WriteToFastaFile(string path, vector<fastaEntry> &records);
-vector<fastaEntry> filterRecords(vector<fastaEntry> &records, vector<fastaEntry> &sortedRecords);
+vector<fastaEntry> filterRecords(vector<fastaEntry> &unsortedRecords, vector<fastaEntry> &sortedRecords);
 vector<vector<fastaEntry>> SplitVectorIntoChunks(vector<fastaEntry> &records, int n = THREADS);
 vector<fastaEntry> GetChunk(vector<fastaEntry>::iterator startItem, long count);
-map<int, int>  CreateLengthIndex(vector<fastaEntry> &records);
+map<int, int>  CreateSequenceLengthSearchIndex(vector<fastaEntry> &records);
+int GetSearchStartingIndex(const fastaEntry& thisRecord);
 int CheckArgumentCount(int argc);
 
-bool sortFunction (const fastaEntry& i, const fastaEntry& j) {
+vector<fastaEntry> recombineChunks(const vector<vector<fastaEntry>> &chunks);
+
+bool sortBySequenceLength (const fastaEntry& i, const fastaEntry& j) {
     return (i.sequenceLength<j.sequenceLength);
 }
 
-map<int, int> CreateLengthIndex(vector<fastaEntry> &records){
+map<int, int> CreateSequenceLengthSearchIndex(vector<fastaEntry> &records){
     map<int, int> lengths{};
     for (auto i = 0; i < records.size(); i++) {
         lengths.try_emplace(records[i].sequenceLength, i);
@@ -97,18 +94,21 @@ int main(int argc, char* argv[])
     auto startPos = records.begin();
     SORTED_RECORDS = GetChunk(startPos, (long) initialRecordNum);
 
-    cout << "Sorting records by length..." << endl;
-    sort(SORTED_RECORDS.begin(), SORTED_RECORDS.end(), sortFunction);
+    cout << "Sorting records by sequence length for searching faster..." << endl;
+    sort(SORTED_RECORDS.begin(), SORTED_RECORDS.end(), sortBySequenceLength);
     cout << "done" << endl;
 
-    cout << "Creating length index..." << endl;
-    SEARCH_INDEX = CreateLengthIndex(SORTED_RECORDS);
+    cout << "Creating sequence length index..." << endl;
+    SEARCH_INDEX = CreateSequenceLengthSearchIndex(SORTED_RECORDS);
     cout << "done" << endl;
 
     cout << "Original record count: " << initialRecordNum << endl;
     auto filtered = filterRecords(records, SORTED_RECORDS);
     cout << endl << "Final record count: "<< filtered.size() << endl;
+
+    cout << "Writing output: " << initialRecordNum << endl;
     WriteToFastaFile(outputPath, filtered);
+    cout << "done" << endl;
 
     auto stop = chrono::high_resolution_clock::now();
     auto duration = chrono::duration_cast<chrono::seconds>(stop - start);
@@ -133,8 +133,12 @@ int CheckArgumentCount(int argc){
     return result;
 }
 
+int GetSearchStartingIndex(const fastaEntry& thisRecord){
+    return SEARCH_INDEX[thisRecord.sequenceLength];
+}
+
 static bool DoesLongerSequenceExist(const fastaEntry& thisRecord, const vector<fastaEntry>& records){//records are sorted by length
-    auto startIndex = SEARCH_INDEX[thisRecord.sequenceLength];
+    auto startIndex = GetSearchStartingIndex(thisRecord);
 
     return any_of((records.begin() + startIndex), records.end(),[&thisRecord](const fastaEntry &item){
         return thisRecord.IsShorterVersionOf(item);
@@ -163,10 +167,11 @@ vector<vector<fastaEntry>> SplitVectorIntoChunks(vector<fastaEntry>& records, in
     return chunks;
 }
 
-vector<fastaEntry> filterRecords(vector<fastaEntry> &records, vector<fastaEntry> &sortedRecords){
-    auto chunkedInput = SplitVectorIntoChunks(records);//records are in original order
+vector<fastaEntry> filterRecords(vector<fastaEntry> &unsortedRecords, vector<fastaEntry> &sortedRecords){
+    auto chunkedInput = SplitVectorIntoChunks(unsortedRecords);
+
     //Make progress bar
-    progressbar bar(records.size());
+    progressbar bar(unsortedRecords.size());
     bar.set_todo_char(" ");
     bar.set_done_char("█");
     bar.set_opening_bracket_char("{");
@@ -184,8 +189,12 @@ vector<fastaEntry> filterRecords(vector<fastaEntry> &records, vector<fastaEntry>
         }),chunk.end());
     }
 
+    return recombineChunks(chunkedInput);
+}
+
+vector<fastaEntry> recombineChunks(const vector<vector<fastaEntry>> &chunks){
     vector<fastaEntry> result;
-    for(auto &chunk : chunkedInput) {
+    for(auto &chunk : chunks) {
         for(auto const &record: chunk){
             result.push_back(record);
         }
@@ -230,10 +239,9 @@ void WriteToFastaFile(string path, vector<fastaEntry>& records){
     ofstream outputFile;
     outputFile.open(path, ios_base::out | ios_base::trunc);
     if(outputFile.is_open()){
-        //write the content
         for(auto & record : records) {
             outputFile << record.header << endl;
-            //outputFile << ">FLASV" << i+1 << '.' << records[i].sequenceLength << endl;
+            //outputFile << ">FLASV" << i+1 << '.' << records[i].sequenceLength << endl; // Custom header
             outputFile << record.sequence << endl;
         }
     }
