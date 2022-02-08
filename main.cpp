@@ -196,7 +196,13 @@ vector<fastaEntry> filterRecords(vector<fastaEntry> &records, vector<fastaEntry>
 vector<fastaEntry> ReadFromFastaFile(string path){
     vector<fastaEntry> fileContent;
     ifstream inputFile;
+
     inputFile.open(path, ios_base::in);
+    if(!inputFile.is_open()){
+        cout << "Input file cannot be opened, stopping."<< endl;
+        throw "Input error";
+    }
+
     if(inputFile.is_open()){
         string tempLine;
         string tempBuffer;
