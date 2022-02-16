@@ -10,3 +10,5 @@ make
 ```bash
 findLongSeqs <input_file> <output_file> <threads>
 ```
+## Dependencies:
+- OpenMP
