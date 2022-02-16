@@ -12,13 +12,13 @@
 
 using namespace std;
 
-struct fastaEntry{
+struct fastaSequence{
     string header;
     string sequence;
     int sequenceLength;
     bool eliminated = false;
 
-    fastaEntry(const string& header, const string& sequence){
+    fastaSequence(const string& header, const string& sequence){
         this->header = std::move(header);
         this->sequence = sequence;
         sequenceLength = sequence.length();
@@ -30,7 +30,7 @@ struct fastaEntry{
         return fastaStream.str();
     }
 
-    bool IsShorterVersionOf (const fastaEntry *otherFastaEntry) const {
+    bool IsShorterVersionOf (const fastaSequence *otherFastaEntry) const {
         if (otherFastaEntry->sequence.find(this->sequence) != string::npos) {
             if(otherFastaEntry->sequenceLength > this->sequenceLength){
                 return true;
@@ -41,24 +41,27 @@ struct fastaEntry{
 };
 
 int THREADS;
-vector<fastaEntry*> SORTED_RECORDS;
+vector<fastaSequence*> SORTED_RECORDS;
 map<int,int> SEARCH_INDEX;
 
-vector<fastaEntry> ReadFromFastaFile(string path);
-void WriteToFastaFile(string path, vector<fastaEntry*> &records);
-vector<fastaEntry*> filterRecords(vector<fastaEntry> &unsortedRecords, vector<fastaEntry*> &sortedRecords);
-vector<vector<fastaEntry*>> SplitVectorIntoChunks(vector<fastaEntry>& records, int n = THREADS);
-map<int, int>  CreateSequenceLengthSearchIndex(vector<fastaEntry*> sortedRecords);
-int GetSearchStartingIndex(const fastaEntry& thisRecord);
+vector<fastaSequence> ReadFromFastaFile(string path);
+void WriteToFastaFile(string path, vector<fastaSequence*> &records);
+vector<fastaSequence*> filterRecords(vector<fastaSequence> &unsortedRecords, vector<fastaSequence*> &sortedRecords);
+vector<vector<fastaSequence*>> SplitVectorIntoChunks(vector<fastaSequence>& records, int n = THREADS);
+map<int, int>  CreateSequenceLengthSearchIndex(vector<fastaSequence*> sortedRecords);
+int GetSearchStartingIndex(const fastaSequence *thisRecord);
 int CheckArgumentCount(int argc);
-vector<fastaEntry*> GetChunk(vector<fastaEntry> &items, int startIndex, long count);
-vector<fastaEntry*> recombineChunks(const vector<vector<fastaEntry*>> &chunks);
+vector<fastaSequence*> GetChunk(vector<fastaSequence> &items, int startIndex, long count);
+vector<fastaSequence*> recombineChunks(const vector<vector<fastaSequence*>> &chunks);
+static bool DoesLongerSequenceExist(const fastaSequence *thisRecord, const vector<fastaSequence*>& records);
 
-bool sortBySequenceLength (const fastaEntry *i, const fastaEntry *j) {
+void DereplicateSequences(vector<fastaSequence*> &preSortedSequences, const map<int,int> &searchLengthIndex);
+
+bool sortBySequenceLength (const fastaSequence *i, const fastaSequence *j) {
     return (i->sequenceLength < j->sequenceLength);
 }
 
-map<int, int> CreateSequenceLengthSearchIndex(vector<fastaEntry*> sortedRecords){
+map<int, int> CreateSequenceLengthSearchIndex(vector<fastaSequence*> sortedRecords){
     map<int, int> lengths{};
     for (auto i = 0; i < sortedRecords.size(); i++) {
         lengths.try_emplace(sortedRecords[i]->sequenceLength, i);
@@ -84,6 +87,7 @@ int main(int argc, char* argv[])
     cout << "Reading input file..." << endl;
     auto records = ReadFromFastaFile(inputPath);
     cout << "done" << endl;
+
     auto initialRecordNum = records.size();
     auto startPos = records.begin();
     SORTED_RECORDS = GetChunk(records,0, (long) initialRecordNum);
@@ -96,24 +100,8 @@ int main(int argc, char* argv[])
     SEARCH_INDEX = CreateSequenceLengthSearchIndex(SORTED_RECORDS);
     cout << "done" << endl;
 
-
     cout << "Dereplicating..." << endl;
-    //TODO multithreading?
-    for(auto &seqIndexItem: SEARCH_INDEX) {
-        set<string> foundSequences = {};
-        auto sizeRange = find_if(SORTED_RECORDS.begin()+seqIndexItem.second, SORTED_RECORDS.end(),[&seqIndexItem](fastaEntry* &thisItem) {
-            return thisItem->sequenceLength > seqIndexItem.first;
-        });
-
-        for(auto itr = SORTED_RECORDS.begin()+seqIndexItem.second; itr != sizeRange && itr != SORTED_RECORDS.end(); itr++){
-            auto currentRecord = **&itr;
-            if(foundSequences.contains(currentRecord->sequence)){
-                currentRecord->eliminated = true;
-            }else{
-                foundSequences.insert(currentRecord->sequence);
-            }
-        }
-    }
+    DereplicateSequences(SORTED_RECORDS, SEARCH_INDEX);
     cout << "done" << endl;
 
     cout << "Original record count: " << initialRecordNum << endl;
@@ -125,10 +113,30 @@ int main(int argc, char* argv[])
     cout << "done" << endl;
 
     auto stop = chrono::high_resolution_clock::now();
-    auto duration = chrono::duration_cast<chrono::seconds>(stop - start);
+    //auto duration = chrono::duration_cast<chrono::seconds>(stop - start);
+    auto duration = chrono::duration_cast<chrono::milliseconds>(stop - start);
     cout << "Process took: " << duration.count() << " seconds to complete" <<endl;
 
     return 0;
+}
+
+//TODO multithreading?
+void DereplicateSequences(vector<fastaSequence*> &preSortedSequences, const map<int,int> &searchLengthIndex) {
+    for(auto &seqIndexItem: searchLengthIndex) {
+        set<string> foundSequences = {};
+        auto sizeRange = find_if(preSortedSequences.begin()+seqIndexItem.second, preSortedSequences.end(),[&seqIndexItem](fastaSequence* &thisItem) {
+            return thisItem->sequenceLength > seqIndexItem.first;
+        });
+
+        for(auto itr = preSortedSequences.begin()+seqIndexItem.second; itr != sizeRange && itr != preSortedSequences.end(); itr++){
+            auto currentRecord = **&itr;
+            if(foundSequences.contains(currentRecord->sequence)){
+                currentRecord->eliminated = true;
+            }else{
+                foundSequences.insert(currentRecord->sequence);
+            }
+        }
+    }
 }
 
 int CheckArgumentCount(int argc){
@@ -147,14 +155,14 @@ int CheckArgumentCount(int argc){
     return result;
 }
 
-int GetSearchStartingIndex(const fastaEntry *thisRecord){
+int GetSearchStartingIndex(const fastaSequence *thisRecord){
     return SEARCH_INDEX[thisRecord->sequenceLength];
 }
 
-static bool DoesLongerSequenceExist(const fastaEntry *thisRecord, const vector<fastaEntry*>& records){//records are sorted by length
+static bool DoesLongerSequenceExist(const fastaSequence *thisRecord, const vector<fastaSequence*>& records){//records are sorted by length
     auto startIndex = GetSearchStartingIndex(thisRecord);
 
-    return any_of((records.begin() + startIndex), records.end(),[&thisRecord](const fastaEntry *item){
+    return any_of((records.begin() + startIndex), records.end(),[&thisRecord](const fastaSequence *item){
         if(!item->eliminated){
             return thisRecord->IsShorterVersionOf(item);
         }
@@ -162,9 +170,9 @@ static bool DoesLongerSequenceExist(const fastaEntry *thisRecord, const vector<f
     });
 }
 
-vector<fastaEntry*> GetChunk(vector<fastaEntry> &items, int startIndex, long count){
+vector<fastaSequence*> GetChunk(vector<fastaSequence> &items, int startIndex, long count){
     auto endIndex =  startIndex + count;
-    vector<fastaEntry*> result;
+    vector<fastaSequence*> result;
     for (int i = startIndex; i < endIndex ;i++){
         auto itemRef = &items.at(i);
         result.push_back(itemRef);
@@ -172,8 +180,8 @@ vector<fastaEntry*> GetChunk(vector<fastaEntry> &items, int startIndex, long cou
     return result;
 }
 
-vector<vector<fastaEntry*>> SplitVectorIntoChunks(vector<fastaEntry>& records, int n) {
-    vector<vector<fastaEntry*>> chunks{};
+vector<vector<fastaSequence*>> SplitVectorIntoChunks(vector<fastaSequence>& records, int n) {
+    vector<vector<fastaSequence*>> chunks{};
     auto fullSize = records.size();
     int position = 0;
     for (int k = 0; k < n; ++k) {
@@ -185,7 +193,7 @@ vector<vector<fastaEntry*>> SplitVectorIntoChunks(vector<fastaEntry>& records, i
     return chunks;
 }
 
-vector<fastaEntry*> filterRecords(vector<fastaEntry> &unsortedRecords, vector<fastaEntry*> &sortedRecords){
+vector<fastaSequence*> filterRecords(vector<fastaSequence> &unsortedRecords, vector<fastaSequence*> &sortedRecords){
     auto chunkedInput = SplitVectorIntoChunks(unsortedRecords);
 
     //Make progress bar
@@ -197,7 +205,7 @@ vector<fastaEntry*> filterRecords(vector<fastaEntry> &unsortedRecords, vector<fa
 
     #pragma omp parallel for num_threads(THREADS)
     for(auto &chunk : chunkedInput) {
-        chunk.erase(remove_if(chunk.begin(), chunk.end(), [&sortedRecords, &bar](const fastaEntry *record)->bool{
+        chunk.erase(remove_if(chunk.begin(), chunk.end(), [&sortedRecords, &bar](const fastaSequence *record)->bool{
 
             //Update the progress bar
             #pragma omp critical
@@ -212,8 +220,8 @@ vector<fastaEntry*> filterRecords(vector<fastaEntry> &unsortedRecords, vector<fa
     return recombineChunks(chunkedInput);
 }
 
-vector<fastaEntry*> recombineChunks(const vector<vector<fastaEntry*>> &chunks){
-    vector<fastaEntry*> result;
+vector<fastaSequence*> recombineChunks(const vector<vector<fastaSequence*>> &chunks){
+    vector<fastaSequence*> result;
     for(auto &chunk : chunks) {
         for(auto const &record: chunk){
             result.push_back(record);
@@ -222,8 +230,8 @@ vector<fastaEntry*> recombineChunks(const vector<vector<fastaEntry*>> &chunks){
     return result;
 }
 
-vector<fastaEntry> ReadFromFastaFile(string path){
-    vector<fastaEntry> fileContent;
+vector<fastaSequence> ReadFromFastaFile(string path){
+    vector<fastaSequence> fileContent;
     ifstream inputFile;
 
     inputFile.open(path, ios_base::in);
@@ -240,7 +248,7 @@ vector<fastaEntry> ReadFromFastaFile(string path){
                 //Get line until > or end of file
                 getline(inputFile, tempBuffer, '>');
                 tempBuffer.erase(std::remove(tempBuffer.begin(), tempBuffer.end(), '\n'), tempBuffer.end());
-                fastaEntry newRecord = {
+                fastaSequence newRecord = {
                         tempLine,
                         tempBuffer
                 };
@@ -255,7 +263,7 @@ vector<fastaEntry> ReadFromFastaFile(string path){
     return fileContent;
 }
 
-void WriteToFastaFile(string path, vector<fastaEntry*>& records){
+void WriteToFastaFile(string path, vector<fastaSequence*>& records){
     ofstream outputFile;
     outputFile.open(path, ios_base::out | ios_base::trunc);
     if(outputFile.is_open()){
