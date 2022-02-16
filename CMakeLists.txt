@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18.4)
-project(sequence_matcher)
+project(findLongSeqs)
 
 set(CMAKE_CXX_STANDARD 20)
 
@@ -12,5 +12,5 @@ endif()
 
 include_directories(.)
 
-add_executable(sequence_matcher
+add_executable(findLongSeqs
         main.cpp include/progressbar.h)
