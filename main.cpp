@@ -47,7 +47,7 @@ map<int,int> SEARCH_INDEX;
 vector<fastaSequence> ReadFromFastaFile(string path);
 void WriteToFastaFile(string path, vector<fastaSequence*> &records);
 vector<fastaSequence*> filterRecords(vector<fastaSequence> &unsortedRecords, vector<fastaSequence*> &sortedRecords);
-vector<vector<fastaSequence*>> SplitVectorIntoChunks(vector<fastaSequence>& records, int n = THREADS);
+vector<vector<fastaSequence*>> SplitVectorIntoChunks(vector<fastaSequence>& records, int numberOfChunks = THREADS);
 map<int, int>  CreateSequenceLengthSearchIndex(vector<fastaSequence*> sortedRecords);
 int GetSearchStartingIndex(const fastaSequence *thisRecord);
 int CheckArgumentCount(int argc);
@@ -180,15 +180,16 @@ vector<fastaSequence*> GetChunk(vector<fastaSequence> &items, int startIndex, lo
     return result;
 }
 
-vector<vector<fastaSequence*>> SplitVectorIntoChunks(vector<fastaSequence>& records, int n) {
+vector<vector<fastaSequence*>> SplitVectorIntoChunks(vector<fastaSequence>& records, int numberOfChunks) {
     vector<vector<fastaSequence*>> chunks{};
-    auto fullSize = records.size();
-    int position = 0;
-    for (int k = 0; k < n; ++k) {
-        long chunkSize = fullSize / (n - k);
-        fullSize -= chunkSize;
-        chunks.emplace_back(GetChunk(records, position, chunkSize));
-        position += chunkSize;
+    auto remainingItemsToChunk = records.size();
+    int chunkStartPosition = 0;
+    for (int chunkIndex = 0; chunkIndex < numberOfChunks; ++chunkIndex) {
+        long chunkSize = remainingItemsToChunk / (numberOfChunks - chunkIndex);
+        remainingItemsToChunk -= chunkSize;
+        chunks.emplace_back(GetChunk(records, chunkStartPosition, chunkSize));
+        chunkStartPosition += chunkSize;
+
     }
     return chunks;
 }
