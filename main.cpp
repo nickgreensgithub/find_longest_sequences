@@ -12,16 +12,20 @@
 
 using namespace std;
 
+map<char,char> SEQUENCE_COMPARISON_SUBSTITUTIONS {{'U','T'}};
+
 struct fastaSequence{
     string header;
-    string sequence;
+    string originalSequence;
+    string substitutedSequence;
     int sequenceLength;
     bool eliminated = false;
 
     fastaSequence(const string& header, const string& sequence){
         this->header = std::move(header);
-        this->sequence = sequence;
+        this->originalSequence = sequence;
         sequenceLength = sequence.length();
+        CreateSubstitutedSequence();
     }
 
     operator const string(){
@@ -31,12 +35,20 @@ struct fastaSequence{
     }
 
     bool IsShorterVersionOf (const fastaSequence *otherFastaEntry) const {
-        if (otherFastaEntry->sequence.find(this->sequence) != string::npos) {
+        if (otherFastaEntry->substitutedSequence.find((substitutedSequence)) != string::npos) {
             if(otherFastaEntry->sequenceLength > this->sequenceLength){
                 return true;
             }
         }
         return false;
+    }
+
+    private: void CreateSubstitutedSequence(){
+        substitutedSequence = originalSequence;
+        transform(substitutedSequence.begin(), substitutedSequence.end(), substitutedSequence.begin(), ::toupper);
+        for (auto substitution: SEQUENCE_COMPARISON_SUBSTITUTIONS) {
+            std::replace( substitutedSequence.begin(), substitutedSequence.end(), substitution.first, substitution.second);
+        }
     }
 };
 
@@ -131,10 +143,10 @@ void DereplicateSequences(vector<fastaSequence*> &preSortedSequences, const map<
 
         for(auto itr = preSortedSequences.begin()+seqIndexItem.second; itr != sizeRange && itr != preSortedSequences.end(); itr++){
             auto currentSequence = **&itr;
-            if(foundSequences.contains(currentSequence->sequence)){
+            if(foundSequences.contains(currentSequence->substitutedSequence)){
                 currentSequence->eliminated = true;
             }else{
-                foundSequences.insert(currentSequence->sequence);
+                foundSequences.insert(currentSequence->substitutedSequence);
             }
         }
     }
@@ -270,7 +282,7 @@ void WriteToFastaFile(string path, vector<fastaSequence*>& sequences){
     if(outputFile.is_open()){
         for(auto &sequence : sequences) {
             outputFile << sequence->header << endl;
-            outputFile << sequence->sequence << endl;
+            outputFile << sequence->originalSequence << endl;
         }
     }
 }
