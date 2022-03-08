@@ -1,6 +1,7 @@
 # Find longest sequences
 A simple tool written in c++ for use in [AutoTax](https://github.com/kasperskytte/autotax), it dereplicates and filters sequences in an input fasta file. Sequences are removed if longer sequences are found which are 100% identical, relative order of sequences is maintained.
 
+U and T sequence characters are treated as if they're the same.
 ## Compilation:
 ```bash
 cmake .
@@ -36,6 +37,10 @@ EGATA
 GAACA
 >ten
 EGATA
+>eleven
+GATU
+>twelve
+GATT
 ```
 
 Running with 1 thread:
@@ -63,7 +68,7 @@ output_file.fa
 >two
 EGACA
 >three
-GAAB
+GAAb
 >five
 GAATA
 >six
@@ -72,4 +77,6 @@ GATACR
 EGATA
 >nine
 GAACA
+>eleven
+GATU
 ```
